@@ -1,0 +1,84 @@
+{
+  "id": "openclaw-local-services-bridge",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "services": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "moviepilot": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "baseUrl": {
+                "type": "string",
+                "title": "MoviePilot MCP Base URL",
+                "description": "Base URL for MoviePilot MCP (for example, http://localhost:3001)."
+              },
+              "endpointPath": {
+                "type": "string",
+                "default": "/api/v1/mcp",
+                "description": "Path to the MCP endpoint (default: /api/v1/mcp)."
+              },
+              "apiKey": {
+                "type": "string",
+                "title": "MoviePilot MCP API Key"
+              },
+              "apiKeyMode": {
+                "type": "string",
+                "enum": ["header", "query", "none"],
+                "default": "header",
+                "description": "How to send the API key."
+              },
+              "apiKeyHeader": {
+                "type": "string",
+                "default": "X-API-KEY",
+                "description": "Header name for API key auth when apiKeyMode=header."
+              },
+              "apiKeyQueryParam": {
+                "type": "string",
+                "default": "apikey",
+                "description": "Query parameter name for API key auth when apiKeyMode=query."
+              },
+              "toolPrefix": {
+                "type": "string",
+                "default": "moviepilot",
+                "description": "Prefix for registered OpenClaw tool names."
+              },
+              "expose": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "If set, only expose these MCP tool names."
+              },
+              "optionalTools": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "MCP tool names (or prefixed tool names) to register as optional."
+              },
+              "timeoutMs": {
+                "type": "integer",
+                "minimum": 1000,
+                "default": 15000,
+                "description": "Request timeout in milliseconds."
+              },
+              "retries": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 5,
+                "default": 1,
+                "description": "Retry count for transient MCP errors."
+              },
+              "debug": {
+                "type": "boolean",
+                "default": false
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "skills": ["skills/moviepilot"]
+}
