@@ -1,33 +1,5 @@
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
-type McpTool = {
-  name: string;
-  description?: string;
-  inputSchema?: JsonValue;
-  parameters?: JsonValue;
-};
-
-type MoviePilotConfig = {
-  baseUrl?: string;
-  endpointPath?: string;
-  apiKey?: string;
-  apiKeyMode?: "header" | "query" | "none";
-  apiKeyHeader?: string;
-  apiKeyQueryParam?: string;
-  toolPrefix?: string;
-  expose?: string[];
-  optionalTools?: string[];
-  timeoutMs?: number;
-  retries?: number;
-  debug?: boolean;
-};
-
-type PluginConfig = {
-  services?: {
-    moviepilot?: MoviePilotConfig;
-  };
-};
-
 type ToolResult = {
   content: Array<{ type: string; text?: string; data?: JsonValue }>;
   [key: string]: JsonValue;
@@ -42,88 +14,170 @@ type Logger = {
 
 type PluginApi = {
   config?: Record<string, JsonValue>;
-  registerTool: (tool: {
-    name: string;
-    description?: string;
-    parameters?: JsonValue;
-    execute: (id: string, params: Record<string, JsonValue>) => Promise<ToolResult>;
-  }, options?: { optional?: boolean }) => void;
+  registerTool: (
+    tool: {
+      name: string;
+      description?: string;
+      parameters?: JsonValue;
+      execute: (id: string, params: Record<string, JsonValue>) => Promise<ToolResult>;
+    },
+    options?: { optional?: boolean }
+  ) => void;
   log?: Logger;
   logger?: Logger;
 };
 
-const PLUGIN_ID = "openclaw-local-services-bridge";
+type EndpointConfig = {
+  path?: string;
+  method?: string;
+};
 
-class JsonRpcClient {
-  private endpointUrl: string;
-  private headers: Record<string, string>;
+type MoviePilotEndpoints = {
+  searchMedia?: EndpointConfig;
+  searchTitle?: EndpointConfig;
+  downloadsList?: EndpointConfig;
+  downloadsAdd?: EndpointConfig;
+  downloadsPause?: EndpointConfig;
+  downloadsResume?: EndpointConfig;
+  downloadsRemove?: EndpointConfig;
+  subscriptionsList?: EndpointConfig;
+  subscriptionsAdd?: EndpointConfig;
+  subscriptionsRemove?: EndpointConfig;
+};
+
+type MoviePilotConfig = {
+  baseUrl?: string;
+  apiKey?: string;
+  apiKeyMode?: "header" | "query" | "bearer" | "none";
+  apiKeyHeader?: string;
+  apiKeyQueryParam?: string;
+  timeoutMs?: number;
+  retries?: number;
+  endpoints?: MoviePilotEndpoints;
+  debug?: boolean;
+};
+
+type PluginConfig = {
+  services?: {
+    moviepilot?: MoviePilotConfig;
+  };
+};
+
+type FetchResponse = {
+  ok: boolean;
+  status: number;
+  headers?: { get: (name: string) => string | null };
+  text: () => Promise<string>;
+};
+
+type RequestOptions = {
+  pathParams?: Record<string, string>;
+  query?: Record<string, JsonValue>;
+  body?: JsonValue;
+};
+
+const PLUGIN_ID = "openclaw-moviepilot";
+
+const DEFAULT_ENDPOINTS: Required<Pick<MoviePilotEndpoints,
+  | "searchMedia"
+  | "searchTitle"
+  | "downloadsList"
+  | "downloadsAdd"
+  | "downloadsPause"
+  | "downloadsResume"
+  | "downloadsRemove"
+  | "subscriptionsList"
+  | "subscriptionsAdd"
+  | "subscriptionsRemove"
+>> = {
+  searchMedia: { path: "/api/v1/search/media/{mediaId}", method: "GET" },
+  searchTitle: { path: "/api/v1/search/title", method: "GET" },
+  downloadsList: { path: "/api/v1/download/", method: "GET" },
+  downloadsAdd: { path: "/api/v1/download/", method: "POST" },
+  downloadsPause: { path: "/api/v1/download/stop/{hash}", method: "GET" },
+  downloadsResume: { path: "/api/v1/download/start/{hash}", method: "GET" },
+  downloadsRemove: { path: "/api/v1/download/{hash}", method: "DELETE" },
+  subscriptionsList: { path: "/api/v1/subscribe/", method: "GET" },
+  subscriptionsAdd: { path: "/api/v1/subscribe/", method: "POST" },
+  subscriptionsRemove: { path: "/api/v1/subscribe/{id}", method: "DELETE" }
+};
+
+class MoviePilotClient {
+  private baseUrl: string;
+  private apiKey?: string;
+  private apiKeyMode: "header" | "query" | "bearer" | "none";
+  private apiKeyHeader: string;
+  private apiKeyQueryParam: string;
   private timeoutMs: number;
   private retries: number;
-  private idCounter: number;
 
   constructor(options: {
-    endpointUrl: string;
-    headers: Record<string, string>;
-    timeoutMs: number;
-    retries: number;
+    baseUrl: string;
+    apiKey?: string;
+    apiKeyMode?: "header" | "query" | "bearer" | "none";
+    apiKeyHeader?: string;
+    apiKeyQueryParam?: string;
+    timeoutMs?: number;
+    retries?: number;
   }) {
-    this.endpointUrl = options.endpointUrl;
-    this.headers = options.headers;
-    this.timeoutMs = options.timeoutMs;
-    this.retries = options.retries;
-    this.idCounter = 0;
+    this.baseUrl = options.baseUrl.replace(/\/+$/, "");
+    this.apiKey = options.apiKey;
+    this.apiKeyMode = options.apiKeyMode ?? "header";
+    this.apiKeyHeader = options.apiKeyHeader ?? "X-API-KEY";
+    this.apiKeyQueryParam = options.apiKeyQueryParam ?? "apikey";
+    this.timeoutMs = options.timeoutMs ?? 15000;
+    this.retries = options.retries ?? 1;
   }
 
-  async request<T = JsonValue>(method: string, params?: Record<string, JsonValue>): Promise<T> {
-    const payload: Record<string, JsonValue> = {
-      jsonrpc: "2.0",
-      id: ++this.idCounter,
-      method,
-    };
-    if (params) {
-      payload.params = params;
+  async request(method: string, pathTemplate: string, options: RequestOptions): Promise<JsonValue> {
+    const path = applyPathParams(pathTemplate, options.pathParams);
+    const url = buildUrl(this.baseUrl, path, options.query);
+
+    const headers: Record<string, string> = {};
+    if (this.apiKey && this.apiKeyMode === "header") {
+      headers[this.apiKeyHeader] = this.apiKey;
+    }
+    if (this.apiKey && this.apiKeyMode === "bearer") {
+      headers["Authorization"] = `Bearer ${this.apiKey}`;
     }
 
-    const body = JSON.stringify(payload);
+    if (options.body !== undefined && method.toUpperCase() !== "GET") {
+      headers["content-type"] = "application/json";
+    }
+
+    const requestUrl = this.apiKey && this.apiKeyMode === "query"
+      ? withQueryParam(url, this.apiKeyQueryParam, this.apiKey)
+      : url;
+
     const response = await fetchWithRetry(
-      this.endpointUrl,
+      requestUrl,
       {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...this.headers,
-        },
-        body,
+        method: method.toUpperCase(),
+        headers,
+        body: options.body !== undefined && method.toUpperCase() !== "GET"
+          ? JSON.stringify(options.body)
+          : undefined
       },
-      {
-        timeoutMs: this.timeoutMs,
-        retries: this.retries,
-      }
+      { timeoutMs: this.timeoutMs, retries: this.retries }
     );
 
+    const text = await response.text();
     if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`MCP HTTP ${response.status}: ${trimForError(text)}`);
+      throw new Error(`MoviePilot API ${response.status}: ${trimForError(text)}`);
     }
 
-    const data = await safeJson(response);
-    if (!data || typeof data !== "object") {
-      throw new Error("MCP response was not JSON.");
+    const contentType = response.headers?.get("content-type") ?? "";
+    if (contentType.includes("application/json")) {
+      try {
+        return JSON.parse(text) as JsonValue;
+      } catch {
+        return text;
+      }
     }
-
-    if ("error" in data && data.error) {
-      const message =
-        typeof data.error === "object" && data.error && "message" in data.error
-          ? String((data.error as Record<string, JsonValue>).message)
-          : "Unknown MCP error";
-      throw new Error(`MCP error: ${message}`);
+    if (!text) {
+      return null;
     }
-
-    if (!("result" in data)) {
-      throw new Error("MCP response missing result.");
-    }
-
-    return data.result as T;
+    return text;
   }
 }
 
@@ -142,54 +196,49 @@ function resolvePluginConfig(api: PluginApi, pluginId: string): PluginConfig {
   return {};
 }
 
-function resolveEndpointUrl(baseUrl: string, endpointPath?: string): string {
-  const trimmedBase = baseUrl.replace(/\/+$/, "");
-  if (!endpointPath) {
-    return trimmedBase;
+function resolveEndpoint(config: EndpointConfig | undefined, fallback: EndpointConfig): EndpointConfig {
+  return {
+    path: config?.path ?? fallback.path,
+    method: (config?.method ?? fallback.method ?? "GET").toUpperCase()
+  };
+}
+
+function applyPathParams(pathTemplate: string, params?: Record<string, string>): string {
+  if (!params) {
+    return pathTemplate;
   }
-  const normalizedPath = endpointPath.startsWith("/") ? endpointPath : `/${endpointPath}`;
-  if (trimmedBase.endsWith(normalizedPath)) {
-    return trimmedBase;
+  return pathTemplate.replace(/\{([a-zA-Z0-9_]+)\}/g, (match, key) => {
+    if (!params[key]) {
+      throw new Error(`Missing path parameter: ${key}`);
+    }
+    return encodeURIComponent(params[key]);
+  });
+}
+
+function buildUrl(baseUrl: string, path: string, query?: Record<string, JsonValue>): string {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const url = new URL(`${baseUrl}${normalizedPath}`);
+  if (query) {
+    for (const [key, value] of Object.entries(query)) {
+      if (value === undefined || value === null) {
+        continue;
+      }
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          url.searchParams.append(key, String(item));
+        }
+      } else {
+        url.searchParams.set(key, String(value));
+      }
+    }
   }
-  const url = new URL(normalizedPath, `${trimmedBase}/`);
   return url.toString();
 }
 
-function normalizeToolName(name: string): string {
-  const normalized = name
-    .replace(/[^A-Za-z0-9]+/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .toLowerCase();
-  return normalized || "moviepilot_tool";
-}
-
-function computeOptional(
-  toolName: string,
-  mappedName: string,
-  optionalSet: Set<string>
-): boolean {
-  if (optionalSet.has(toolName) || optionalSet.has(mappedName) || optionalSet.has(normalizeToolName(toolName))) {
-    return true;
-  }
-  const lower = toolName.toLowerCase();
-  return [
-    "add",
-    "create",
-    "update",
-    "delete",
-    "remove",
-    "subscribe",
-    "pause",
-    "resume",
-    "start",
-    "stop",
-    "enable",
-    "disable",
-    "set",
-    "put",
-    "post",
-  ].some((token) => lower.includes(token));
+function withQueryParam(url: string, key: string, value: string): string {
+  const next = new URL(url);
+  next.searchParams.set(key, value);
+  return next.toString();
 }
 
 function trimForError(text: string, max = 500): string {
@@ -197,37 +246,11 @@ function trimForError(text: string, max = 500): string {
   return cleaned.length > max ? `${cleaned.slice(0, max)}...` : cleaned;
 }
 
-function safeStringify(value: JsonValue): string {
-  if (value === undefined) {
-    return "";
-  }
-  if (typeof value === "string") {
-    return value;
-  }
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
-
-async function safeJson(response: { text: () => Promise<string> }): Promise<Record<string, JsonValue> | null> {
-  const text = await response.text();
-  if (!text) {
-    return null;
-  }
-  try {
-    return JSON.parse(text) as Record<string, JsonValue>;
-  } catch {
-    throw new Error(`Invalid JSON response: ${trimForError(text)}`);
-  }
-}
-
 async function fetchWithRetry(
   url: string,
   options: Record<string, unknown>,
   config: { timeoutMs: number; retries: number }
-): Promise<{ ok: boolean; status: number; text: () => Promise<string> }> {
+): Promise<FetchResponse> {
   let attempt = 0;
   let lastError: Error | null = null;
   while (attempt <= config.retries) {
@@ -240,7 +263,7 @@ async function fetchWithRetry(
         await delay(backoff(attempt));
         continue;
       }
-      return response;
+      return response as FetchResponse;
     } catch (error) {
       lastError = error as Error;
       if (attempt >= config.retries) {
@@ -252,7 +275,7 @@ async function fetchWithRetry(
       clearTimeout(timeout);
     }
   }
-  throw lastError ?? new Error("Unknown MCP request error.");
+  throw lastError ?? new Error("Unknown MoviePilot request error.");
 }
 
 function backoff(attempt: number): number {
@@ -263,116 +286,296 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function toToolResult(data: JsonValue): ToolResult {
+  const text = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+  return {
+    content: [
+      {
+        type: "text",
+        text
+      }
+    ],
+    data
+  };
+}
+
 export default async function register(api: PluginApi): Promise<void> {
   const logger = api.log ?? api.logger ?? console;
   const pluginConfig = resolvePluginConfig(api, PLUGIN_ID);
   const moviepilot = pluginConfig.services?.moviepilot;
   if (!moviepilot?.baseUrl) {
-    logger.info?.("MoviePilot MCP not configured; skipping tool registration.");
+    logger.info?.("MoviePilot API not configured; skipping tool registration.");
     return;
   }
 
-  let endpointUrl: string;
-  try {
-    endpointUrl = resolveEndpointUrl(moviepilot.baseUrl, moviepilot.endpointPath);
-  } catch (error) {
-    logger.error?.(`Invalid MoviePilot MCP baseUrl: ${(error as Error).message}`);
-    return;
-  }
-  const apiKeyMode = moviepilot.apiKeyMode ?? "header";
-  const headers: Record<string, string> = {};
-  let requestUrl = endpointUrl;
-
-  if (moviepilot.apiKey && apiKeyMode === "header") {
-    headers[moviepilot.apiKeyHeader ?? "X-API-KEY"] = moviepilot.apiKey;
-  }
-  if (moviepilot.apiKey && apiKeyMode === "query") {
-    const url = new URL(endpointUrl);
-    url.searchParams.set(moviepilot.apiKeyQueryParam ?? "apikey", moviepilot.apiKey);
-    requestUrl = url.toString();
-  }
-
-  const client = new JsonRpcClient({
-    endpointUrl: requestUrl,
-    headers,
-    timeoutMs: moviepilot.timeoutMs ?? 15000,
-    retries: moviepilot.retries ?? 1,
+  const client = new MoviePilotClient({
+    baseUrl: moviepilot.baseUrl,
+    apiKey: moviepilot.apiKey,
+    apiKeyMode: moviepilot.apiKeyMode,
+    apiKeyHeader: moviepilot.apiKeyHeader,
+    apiKeyQueryParam: moviepilot.apiKeyQueryParam,
+    timeoutMs: moviepilot.timeoutMs,
+    retries: moviepilot.retries
   });
 
-  let tools: McpTool[] = [];
-  try {
-    const result = await client.request<{ tools?: McpTool[] }>("tools/list");
-    tools = Array.isArray(result.tools) ? result.tools : [];
-  } catch (error) {
-    logger.error?.(`MoviePilot MCP tools/list failed: ${(error as Error).message}`);
-    return;
-  }
+  const endpoints = moviepilot.endpoints ?? {};
+  const searchMedia = resolveEndpoint(endpoints.searchMedia, DEFAULT_ENDPOINTS.searchMedia);
+  const searchTitle = resolveEndpoint(endpoints.searchTitle, DEFAULT_ENDPOINTS.searchTitle);
+  const downloadsList = resolveEndpoint(endpoints.downloadsList, DEFAULT_ENDPOINTS.downloadsList);
+  const downloadsAdd = resolveEndpoint(endpoints.downloadsAdd, DEFAULT_ENDPOINTS.downloadsAdd);
+  const downloadsPause = resolveEndpoint(endpoints.downloadsPause, DEFAULT_ENDPOINTS.downloadsPause);
+  const downloadsResume = resolveEndpoint(endpoints.downloadsResume, DEFAULT_ENDPOINTS.downloadsResume);
+  const downloadsRemove = resolveEndpoint(endpoints.downloadsRemove, DEFAULT_ENDPOINTS.downloadsRemove);
+  const subscriptionsList = resolveEndpoint(endpoints.subscriptionsList, DEFAULT_ENDPOINTS.subscriptionsList);
+  const subscriptionsAdd = resolveEndpoint(endpoints.subscriptionsAdd, DEFAULT_ENDPOINTS.subscriptionsAdd);
+  const subscriptionsRemove = resolveEndpoint(endpoints.subscriptionsRemove, DEFAULT_ENDPOINTS.subscriptionsRemove);
 
-  if (!tools.length) {
-    logger.warn?.("MoviePilot MCP returned no tools; nothing to register.");
-    return;
-  }
-
-  const prefix = normalizeToolName(moviepilot.toolPrefix ?? "moviepilot");
-  const exposeSet = new Set(moviepilot.expose ?? []);
-  const optionalSet = new Set(moviepilot.optionalTools ?? []);
-  const usedNames = new Set<string>();
-
-  for (const tool of tools) {
-    if (!tool?.name) {
-      continue;
-    }
-    let mappedName = normalizeToolName(`${prefix}_${tool.name}`);
-    const normalizedToolName = normalizeToolName(tool.name);
-    if (
-      exposeSet.size > 0 &&
-      !exposeSet.has(tool.name) &&
-      !exposeSet.has(mappedName) &&
-      !exposeSet.has(normalizedToolName)
-    ) {
-      continue;
-    }
-
-    let suffix = 2;
-    while (usedNames.has(mappedName)) {
-      mappedName = `${normalizeToolName(`${prefix}_${tool.name}`)}_${suffix}`;
-      suffix += 1;
-    }
-    usedNames.add(mappedName);
-
-    const parameters = (tool.inputSchema ?? tool.parameters) as JsonValue | undefined;
-    const optional = computeOptional(tool.name, mappedName, optionalSet);
-
-    api.registerTool(
-      {
-        name: mappedName,
-        description: tool.description ?? `MoviePilot MCP tool: ${tool.name}`,
-        parameters: parameters ?? { type: "object", additionalProperties: true },
-        execute: async (_id, params) => {
-          const result = await client.request<JsonValue>("tools/call", {
-            name: tool.name,
-            arguments: (params ?? {}) as JsonValue,
-          });
-
-          if (result && typeof result === "object" && "content" in result) {
-            return result as ToolResult;
-          }
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: safeStringify(result),
-              },
-            ],
-          };
+  api.registerTool(
+    {
+      name: "moviepilot.search",
+      description: "Search media by exact media ID or by title keyword.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          mode: { type: "string", enum: ["media", "title"] },
+          mediaId: { type: "string" },
+          title: { type: "string" },
+          query: { type: "object", additionalProperties: true }
         },
+        required: ["mode"]
       },
-      optional ? { optional: true } : undefined
-    );
-  }
+      execute: async (_id, params) => {
+        const mode = String(params.mode ?? "");
+        if (mode === "media") {
+          const mediaId = String(params.mediaId ?? "");
+          if (!mediaId) {
+            throw new Error("moviepilot.search (media) requires mediaId.");
+          }
+          const result = await client.request(searchMedia.method ?? "GET", searchMedia.path ?? "", {
+            pathParams: { mediaId },
+            query: params.query as Record<string, JsonValue> | undefined
+          });
+          return toToolResult(result);
+        }
+        if (mode === "title") {
+          const title = String(params.title ?? "");
+          if (!title) {
+            throw new Error("moviepilot.search (title) requires title.");
+          }
+          const query: Record<string, JsonValue> = { ...(params.query as Record<string, JsonValue> | undefined) };
+          if (!("title" in query)) {
+            query.title = title;
+          }
+          const result = await client.request(searchTitle.method ?? "GET", searchTitle.path ?? "", {
+            query
+          });
+          return toToolResult(result);
+        }
+        throw new Error("moviepilot.search requires mode=media or mode=title.");
+      }
+    }
+  );
+
+  api.registerTool(
+    {
+      name: "moviepilot.subscriptions.list",
+      description: "List subscriptions.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          query: { type: "object", additionalProperties: true }
+        }
+      },
+      execute: async (_id, params) => {
+        const result = await client.request(subscriptionsList.method ?? "GET", subscriptionsList.path ?? "", {
+          query: params.query as Record<string, JsonValue> | undefined
+        });
+        return toToolResult(result);
+      }
+    }
+  );
+
+  api.registerTool(
+    {
+      name: "moviepilot.downloads.list",
+      description: "List download tasks.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          query: { type: "object", additionalProperties: true }
+        }
+      },
+      execute: async (_id, params) => {
+        const result = await client.request(downloadsList.method ?? "GET", downloadsList.path ?? "", {
+          query: params.query as Record<string, JsonValue> | undefined
+        });
+        return toToolResult(result);
+      }
+    }
+  );
+
+  api.registerTool(
+    {
+      name: "moviepilot.subscriptions.add",
+      description: "Add a subscription.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          body: { type: "object", additionalProperties: true },
+          query: { type: "object", additionalProperties: true }
+        }
+      },
+      execute: async (_id, params) => {
+        const result = await client.request(subscriptionsAdd.method ?? "POST", subscriptionsAdd.path ?? "", {
+          body: params.body as JsonValue,
+          query: params.query as Record<string, JsonValue> | undefined
+        });
+        return toToolResult(result);
+      }
+    },
+    { optional: true }
+  );
+
+  api.registerTool(
+    {
+      name: "moviepilot.downloads.add",
+      description: "Add a download task.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          body: { type: "object", additionalProperties: true },
+          query: { type: "object", additionalProperties: true }
+        }
+      },
+      execute: async (_id, params) => {
+        const result = await client.request(downloadsAdd.method ?? "POST", downloadsAdd.path ?? "", {
+          body: params.body as JsonValue,
+          query: params.query as Record<string, JsonValue> | undefined
+        });
+        return toToolResult(result);
+      }
+    },
+    { optional: true }
+  );
+
+  api.registerTool(
+    {
+      name: "moviepilot.downloads.pause",
+      description: "Pause a download task by hash.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          hash: { type: "string" },
+          query: { type: "object", additionalProperties: true }
+        },
+        required: ["hash"]
+      },
+      execute: async (_id, params) => {
+        const hash = String(params.hash ?? "");
+        if (!hash) {
+          throw new Error("moviepilot.downloads.pause requires hash.");
+        }
+        const result = await client.request(downloadsPause.method ?? "GET", downloadsPause.path ?? "", {
+          pathParams: { hash },
+          query: params.query as Record<string, JsonValue> | undefined
+        });
+        return toToolResult(result);
+      }
+    },
+    { optional: true }
+  );
+
+  api.registerTool(
+    {
+      name: "moviepilot.downloads.resume",
+      description: "Resume a download task by hash.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          hash: { type: "string" },
+          query: { type: "object", additionalProperties: true }
+        },
+        required: ["hash"]
+      },
+      execute: async (_id, params) => {
+        const hash = String(params.hash ?? "");
+        if (!hash) {
+          throw new Error("moviepilot.downloads.resume requires hash.");
+        }
+        const result = await client.request(downloadsResume.method ?? "GET", downloadsResume.path ?? "", {
+          pathParams: { hash },
+          query: params.query as Record<string, JsonValue> | undefined
+        });
+        return toToolResult(result);
+      }
+    },
+    { optional: true }
+  );
+
+  api.registerTool(
+    {
+      name: "moviepilot.downloads.remove",
+      description: "Remove a download task by hash.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          hash: { type: "string" },
+          query: { type: "object", additionalProperties: true }
+        },
+        required: ["hash"]
+      },
+      execute: async (_id, params) => {
+        const hash = String(params.hash ?? "");
+        if (!hash) {
+          throw new Error("moviepilot.downloads.remove requires hash.");
+        }
+        const result = await client.request(downloadsRemove.method ?? "DELETE", downloadsRemove.path ?? "", {
+          pathParams: { hash },
+          query: params.query as Record<string, JsonValue> | undefined
+        });
+        return toToolResult(result);
+      }
+    },
+    { optional: true }
+  );
+
+  api.registerTool(
+    {
+      name: "moviepilot.subscriptions.remove",
+      description: "Remove a subscription by id.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          query: { type: "object", additionalProperties: true }
+        },
+        required: ["id"]
+      },
+      execute: async (_id, params) => {
+        const id = String(params.id ?? "");
+        if (!id) {
+          throw new Error("moviepilot.subscriptions.remove requires id.");
+        }
+        const result = await client.request(subscriptionsRemove.method ?? "DELETE", subscriptionsRemove.path ?? "", {
+          pathParams: { id },
+          query: params.query as Record<string, JsonValue> | undefined
+        });
+        return toToolResult(result);
+      }
+    },
+    { optional: true }
+  );
 
   if (moviepilot.debug) {
-    logger.info?.(`Registered ${usedNames.size} MoviePilot MCP tools.`);
+    logger.info?.("MoviePilot REST tools registered.");
   }
 }

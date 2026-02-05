@@ -1,38 +1,48 @@
-# 安装指南（MoviePilot MCP → OpenClaw）
+# Install Guide (MoviePilot REST -> OpenClaw)
 
-本指南用于安装并启用 `openclaw-local-services-bridge` 插件，通过 MCP 代理 MoviePilot 的工具。
+This guide installs the `openclaw-moviepilot` plugin and wires MoviePilot REST API endpoints into OpenClaw.
 
-## 前置条件
+## Prerequisites
 
-1. OpenClaw 已安装并可运行（Gateway 进程正常启动）。
-2. MoviePilot MCP 已启用并可访问，例如 `http://localhost:3001/api/v1/mcp`。
-3. 如 MoviePilot 启用了鉴权，准备好 API Key。
+1. OpenClaw is installed and the Gateway process is running.
+2. MoviePilot REST API is reachable (for example, `http://localhost:3001`).
+3. If MoviePilot requires authentication, have your API key or token ready.
 
-## 安装步骤
+## Install
 
-1. 本地开发安装（link 模式）：
+1. Local dev install (link mode):
 
 ```bash
 openclaw plugins install -l C:\Users\admin\Documents\github.com\mcp-plugin
 ```
 
-2. 编辑 `~/.openclaw/openclaw.json`，加入插件配置：
+2. Edit `~/.openclaw/openclaw.json` and add plugin config:
 
 ```json
 {
   "plugins": {
     "entries": {
-      "openclaw-local-services-bridge": {
+      "openclaw-moviepilot": {
         "enabled": true,
         "config": {
           "services": {
             "moviepilot": {
               "baseUrl": "http://localhost:3001",
-              "endpointPath": "/api/v1/mcp",
               "apiKey": "YOUR_API_KEY",
               "apiKeyMode": "header",
-              "toolPrefix": "moviepilot",
-              "optionalTools": ["subscriptions_add", "downloads_add"]
+              "apiKeyHeader": "X-API-KEY",
+              "endpoints": {
+                "searchMedia": { "path": "/api/v1/search/media/{mediaId}" },
+                "searchTitle": { "path": "/api/v1/search/title" },
+                "downloadsList": { "path": "/api/v1/download/" },
+                "downloadsAdd": { "path": "/api/v1/download/" },
+                "downloadsPause": { "path": "/api/v1/download/stop/{hash}" },
+                "downloadsResume": { "path": "/api/v1/download/start/{hash}" },
+                "downloadsRemove": { "path": "/api/v1/download/{hash}" },
+                "subscriptionsList": { "path": "/api/v1/subscribe/" },
+                "subscriptionsAdd": { "path": "/api/v1/subscribe/" },
+                "subscriptionsRemove": { "path": "/api/v1/subscribe/{id}" }
+              }
             }
           }
         }
@@ -40,42 +50,46 @@ openclaw plugins install -l C:\Users\admin\Documents\github.com\mcp-plugin
     }
   },
   "tools": {
-    "allow": ["openclaw-local-services-bridge"]
+    "allow": ["openclaw-moviepilot"]
   }
 }
 ```
 
-3. 如需写操作工具（新增订阅/下载等），在你的 agent 或全局配置中加入 `optionalAllow`。示例：
+3. Allow write tools when needed (optional):
 
 ```json
 {
   "tools": {
     "optionalAllow": [
-      "moviepilot_subscriptions_add",
-      "moviepilot_downloads_add"
+      "moviepilot.subscriptions.add",
+      "moviepilot.subscriptions.remove",
+      "moviepilot.downloads.add",
+      "moviepilot.downloads.pause",
+      "moviepilot.downloads.resume",
+      "moviepilot.downloads.remove"
     ]
   }
 }
 ```
 
-4. 重启 OpenClaw Gateway。
+4. Restart OpenClaw Gateway.
 
-## 验证
+## Verify
 
-1. 查看插件是否启用：
+1. Check plugin list:
 
 ```bash
 openclaw plugins list
 ```
 
-2. 查看插件详情：
+2. Inspect plugin info:
 
 ```bash
-openclaw plugins info openclaw-local-services-bridge
+openclaw plugins info openclaw-moviepilot
 ```
 
-3. 如启用了 `debug: true`，启动日志会打印已注册的工具数量。
+3. If you set `debug: true`, startup logs will confirm tool registration.
 
-## Docker 场景提示
+## Docker Note
 
-如果 OpenClaw 运行在容器内，`baseUrl` 可能需要改为 `http://host.docker.internal:3001` 或使用 host 网络模式。
+If OpenClaw runs in a container, `baseUrl` might need to use `http://host.docker.internal:3001` or host networking.

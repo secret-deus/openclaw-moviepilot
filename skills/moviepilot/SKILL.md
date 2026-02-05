@@ -1,17 +1,16 @@
 ---
-name: moviepilot-mcp
-description: Use MoviePilot MCP tools via OpenClaw to search, list subscriptions, and manage downloads.
-metadata: {"openclaw":{"requires":{"config":["plugins.entries.openclaw-local-services-bridge.config.services.moviepilot.baseUrl"]}}}
+name: moviepilot-rest
+description: Use MoviePilot REST tools via OpenClaw to search, list subscriptions, and manage downloads.
+metadata: {"openclaw":{"requires":{"config":["plugins.entries.openclaw-moviepilot.config.services.moviepilot.baseUrl"]}}}
 ---
 
-# MoviePilot MCP (OpenClaw)
+# MoviePilot REST (OpenClaw)
 
-Use the registered MoviePilot MCP tools to search the library, list subscriptions, and manage downloads.
+Use the registered MoviePilot REST tools to search the library, list subscriptions, and manage downloads.
 
 Tool naming:
 
-1. Tools are registered as `moviepilot_<mcp_tool_name>` by default.
-2. If `toolPrefix` is configured, replace `moviepilot_` with the configured prefix.
+1. Tools are registered with fixed names like `moviepilot.search` and `moviepilot.downloads.list`.
 
 Safety:
 
@@ -21,11 +20,11 @@ Safety:
 Output:
 
 1. Summarize results in a short list with titles and statuses.
-2. If the MCP tool returns structured data, preserve key fields like `id`, `title`, `status`, and `reason`.
+2. If the API returns structured data, preserve key fields like `id`, `title`, `status`, and `reason`.
 
 Example:
 
 User: Subscribe to Dune Part Two
 Assistant: I will add a subscription for Dune Part Two. Proceed?
 User: Yes
-Assistant: (calls the appropriate `moviepilot_*` add tool)
+Assistant: (calls `moviepilot.subscriptions.add`)

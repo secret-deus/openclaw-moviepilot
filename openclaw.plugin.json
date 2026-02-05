@@ -1,5 +1,5 @@
 {
-  "id": "openclaw-local-services-bridge",
+  "id": "openclaw-moviepilot",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -14,21 +14,16 @@
             "properties": {
               "baseUrl": {
                 "type": "string",
-                "title": "MoviePilot MCP Base URL",
-                "description": "Base URL for MoviePilot MCP (for example, http://localhost:3001)."
-              },
-              "endpointPath": {
-                "type": "string",
-                "default": "/api/v1/mcp",
-                "description": "Path to the MCP endpoint (default: /api/v1/mcp)."
+                "title": "MoviePilot API Base URL",
+                "description": "Base URL for MoviePilot API (for example, http://localhost:3001)."
               },
               "apiKey": {
                 "type": "string",
-                "title": "MoviePilot MCP API Key"
+                "title": "MoviePilot API Key"
               },
               "apiKeyMode": {
                 "type": "string",
-                "enum": ["header", "query", "none"],
+                "enum": ["header", "query", "bearer", "none"],
                 "default": "header",
                 "description": "How to send the API key."
               },
@@ -42,21 +37,6 @@
                 "default": "apikey",
                 "description": "Query parameter name for API key auth when apiKeyMode=query."
               },
-              "toolPrefix": {
-                "type": "string",
-                "default": "moviepilot",
-                "description": "Prefix for registered OpenClaw tool names."
-              },
-              "expose": {
-                "type": "array",
-                "items": { "type": "string" },
-                "description": "If set, only expose these MCP tool names."
-              },
-              "optionalTools": {
-                "type": "array",
-                "items": { "type": "string" },
-                "description": "MCP tool names (or prefixed tool names) to register as optional."
-              },
               "timeoutMs": {
                 "type": "integer",
                 "minimum": 1000,
@@ -68,7 +48,93 @@
                 "minimum": 0,
                 "maximum": 5,
                 "default": 1,
-                "description": "Retry count for transient MCP errors."
+                "description": "Retry count for transient API errors."
+              },
+              "endpoints": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "searchMedia": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "path": { "type": "string", "default": "/api/v1/search/media/{mediaId}" },
+                      "method": { "type": "string", "default": "GET" }
+                    }
+                  },
+                  "searchTitle": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "path": { "type": "string", "default": "/api/v1/search/title" },
+                      "method": { "type": "string", "default": "GET" }
+                    }
+                  },
+                  "downloadsList": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "path": { "type": "string", "default": "/api/v1/download/" },
+                      "method": { "type": "string", "default": "GET" }
+                    }
+                  },
+                  "downloadsAdd": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "path": { "type": "string", "default": "/api/v1/download/" },
+                      "method": { "type": "string", "default": "POST" }
+                    }
+                  },
+                  "downloadsPause": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "path": { "type": "string", "default": "/api/v1/download/stop/{hash}" },
+                      "method": { "type": "string", "default": "GET" }
+                    }
+                  },
+                  "downloadsResume": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "path": { "type": "string", "default": "/api/v1/download/start/{hash}" },
+                      "method": { "type": "string", "default": "GET" }
+                    }
+                  },
+                  "downloadsRemove": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "path": { "type": "string", "default": "/api/v1/download/{hash}" },
+                      "method": { "type": "string", "default": "DELETE" }
+                    }
+                  },
+                  "subscriptionsList": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "path": { "type": "string" },
+                      "method": { "type": "string", "default": "GET" }
+                    }
+                  },
+                  "subscriptionsAdd": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "path": { "type": "string" },
+                      "method": { "type": "string", "default": "POST" }
+                    }
+                  },
+                  "subscriptionsRemove": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "path": { "type": "string" },
+                      "method": { "type": "string", "default": "DELETE" }
+                    }
+                  }
+                }
               },
               "debug": {
                 "type": "boolean",
