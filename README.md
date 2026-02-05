@@ -1,4 +1,4 @@
-# OpenClaw Local Services Bridge (MoviePilot REST)
+# OpenClaw MoviePilot Plugin (MoviePilot REST)
 
 This plugin exposes MoviePilot's REST API to OpenClaw via fixed tools.
 
