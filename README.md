@@ -10,7 +10,7 @@ openclaw plugins install -l C:\path\to\openclaw-moviepilot
 
 ## Configure
 
-Example `openclaw.json` entry:
+Example updates to merge into your existing `openclaw.json`:
 
 ```json
 {
@@ -42,9 +42,28 @@ Example `openclaw.json` entry:
         }
       }
     }
-  },
+  }
+}
+```
+
+Add the allow/optionalAllow settings under your existing `tools` section:
+
+```json
+{
   "tools": {
-    "allow": ["openclaw-moviepilot"]
+    "web": {
+      "search": { "enabled": false },
+      "fetch": { "enabled": true }
+    },
+    "allow": ["openclaw-moviepilot"],
+    "optionalAllow": [
+      "moviepilot.subscriptions.add",
+      "moviepilot.subscriptions.remove",
+      "moviepilot.downloads.add",
+      "moviepilot.downloads.pause",
+      "moviepilot.downloads.resume",
+      "moviepilot.downloads.remove"
+    ]
   }
 }
 ```

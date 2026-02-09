@@ -16,7 +16,7 @@ This guide installs the `openclaw-moviepilot` plugin and wires MoviePilot REST A
 openclaw plugins install -l C:\Users\admin\Documents\github.com\mcp-plugin
 ```
 
-2. Edit `~/.openclaw/openclaw.json` and add plugin config:
+2. Edit `~/.openclaw/openclaw.json` and merge the plugin config:
 
 ```json
 {
@@ -48,18 +48,20 @@ openclaw plugins install -l C:\Users\admin\Documents\github.com\mcp-plugin
         }
       }
     }
-  },
-  "tools": {
-    "allow": ["openclaw-moviepilot"]
   }
 }
 ```
 
-3. Allow write tools when needed (optional):
+3. Merge tool allow lists into your existing `tools` section:
 
 ```json
 {
   "tools": {
+    "web": {
+      "search": { "enabled": false },
+      "fetch": { "enabled": true }
+    },
+    "allow": ["openclaw-moviepilot"],
     "optionalAllow": [
       "moviepilot.subscriptions.add",
       "moviepilot.subscriptions.remove",
